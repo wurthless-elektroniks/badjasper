@@ -1,0 +1,243 @@
+;
+; Bad Jasper "fix" (more of a workaround).
+; If the boot attempt fails, hard reset (NOT soft reset) and try again.
+;
+; For 8051 noobs:
+; - You need to use r0 for writing/reading some memory cells
+;   or you'll end up accessing special registers instead.
+;   And that breaks things.
+; - Stack operations are weird. Pushes increase stack pointer,
+;   pops decrease stack pointer. Keep your variables away from the stack pointer.
+;
+
+
+; ------------------------------------------------------------------------
+;
+; Consts / defs
+;
+; ------------------------------------------------------------------------
+
+g_powerswitch_pushed                    equ 021h.0
+g_powerup_sm_should_run                 equ 021h.5
+g_sysreset_watchdog_should_run          equ 021h.6
+
+g_powerdown_sm_should_run               equ 022h.0
+
+g_has_getpowerupcause_arrived           equ 022h.3
+
+g_force_shutdown                        equ 023h.3
+
+g_power_up_cause                        equ 061h
+
+g_shared_timer_cell                     equ 03Dh
+
+; these variables will be automatically zeroed out on reset
+g_ledlightshow_watchdog_state           equ 096h
+g_ledlightshow_watchdog_death_counter   equ 097h
+
+; these variables will persist past a reboot
+; see init_memclear_patch_start
+g_hardreset_sm_init                     equ 098h
+g_hardreset_sm_state                    equ 099h
+g_power_up_cause_backup                 equ 09Ah
+
+; ------------------------------------------------------------------------
+;
+; Patchlist
+;
+; ------------------------------------------------------------------------
+    .org 0x0000
+    mov dptr,#mainloop_reorg_start
+    mov dptr,#mainloop_reorg_end
+
+    mov dptr,#init_memclear_patch_start
+    mov dptr,#init_memclear_patch_end
+
+    mov dptr,#ipc_setled_reroute_start
+    mov dptr,#ipc_setled_reroute_end
+
+ifdef HARD_RESET_ON_NORMAL_TIMEOUT
+    mov dptr,#reset_watchdog_fail_case_start
+    mov dptr,#reset_watchdog_fail_case_end
+endif
+
+    mov dptr,#hard_reset_start
+    mov dptr,#hard_reset_end
+
+    .byte 0 ; zero terminates the patchlist
+
+; ------------------------------------------------------------------------
+
+    ; mainloop re-org
+    .org 0x07C2
+mainloop_reorg_start:
+    ; we drop this reorg in where the debug led statemachine was
+    ; (it's NOP'd out on hacked SMCs)
+    lcall 0x1DE9                        ; power event monitor (checks for button presses and acts on them)
+    lcall 0x119B                        ; no idea what this does
+    lcall 0x1072                        ; powerup statemachine
+    lcall 0x12D5                        ; reset watchdog (reboots if GetPowerUpCause isn't received in time)
+    lcall 0x1127                        ; reset statemachine (performs actual hardware reset sequence)
+    lcall 0x0EA9                        ; powerdown statemachine
+    lcall badjasper_statemachines_exec  ; our custom code below
+
+    ; should end at 0x07D7 - if it doesn't, we've broken the build
+mainloop_reorg_end:
+
+    ; make room for our state machine variables
+    ; so they are in a safe space and don't get killed on reboot
+    .org 0x7EC
+init_memclear_patch_start:
+    mov r2,#0x1A ; stop memory clear at 0x97, so 0x98, 0x99, 0x9A don't get overwritten on reboot
+init_memclear_patch_end:
+
+    ; reroute any power LED changes (via IPC) to custom code below
+    .org 0xC77
+ipc_setled_reroute_start:
+    ljmp ipc_led_anim_has_arrived
+ipc_setled_reroute_end:
+
+    ; reset watchdog patch: jump to hard reset function on timeout
+    ; (togglable)
+ifdef HARD_RESET_ON_NORMAL_TIMEOUT
+
+    .org 0x12B7
+reset_watchdog_fail_case_start:
+    ljmp hard_reset
+reset_watchdog_fail_case_end:
+
+endif
+
+    ; the bulk of our code lives in here
+    .org 0x2E20
+hard_reset_start:
+
+hard_reset:
+    ; stash powerup cause because it will get trashed on reboot
+    mov r0,#g_power_up_cause
+    mov a,@r0
+    mov r0,#g_power_up_cause_backup
+    mov @r0,a
+
+    ; activate statemachine below
+    mov r0,#g_hardreset_sm_state   ; init first state
+    mov @r0,#0x43
+
+    ; and force a hard reset
+    ; (this should NOT clear our work var space!!)
+    jmp 0x0000
+
+_hardreset_do_nothing:
+    ret
+
+badjasper_statemachines_exec:
+    lcall hardreset_sm_exec
+    lcall led_lightshow_sm_exec
+    ret
+
+    ; one-time init stuff
+hardreset_init_vars:
+    mov r0,#g_power_up_cause_backup     ; power button by default
+    mov @r0,0x11
+    mov r0,#g_hardreset_sm_state        ; statemachine off by default
+    mov @r0,#0
+    mov r0,#g_hardreset_sm_init         ; SM now initialized
+    mov @r0,#69
+    ret
+
+hardreset_sm_exec:
+    ; init work vars if not initialized already
+    mov r0,#g_hardreset_sm_init
+    mov a,@r0
+    cjne a,#69,hardreset_init_vars
+
+    ; actual state machine execution here
+    mov r0,#g_hardreset_sm_state
+    mov a,@r0
+
+    cjne a,#0x43,_hardreset_sm_check_case_54
+
+    ; state 1: push power button and go to next state
+    setb g_powerswitch_pushed
+    mov r0,#g_hardreset_sm_state
+    mov @r0,#0x54
+    ret
+
+_hardreset_sm_check_case_54:
+    cjne a,#0x54,_hardreset_do_nothing
+
+    ; wait for power up sequence to finish,
+    ; then restore powerup cause
+    jb g_powerup_sm_should_run,_hardreset_do_nothing
+
+    mov r0,#g_power_up_cause_backup ; read stashed powerup cause
+    mov a,@r0
+    mov r0,#g_power_up_cause        ; write it back to restore it
+    mov @r0,a
+    mov r0,#g_hardreset_sm_state    ; turn off hard reset statemachine
+    mov @r0,#0
+    ret
+
+;
+; LED lightshow watchdog down here
+;
+led_lightshow_sm_exec:
+    ; only execute this after GetPowerUpCause arrives.
+    ; note that the system will clear this flag on the next boot attempt.
+    jb g_has_getpowerupcause_arrived,_led_lightshow_sm_check_case_00
+
+    ; otherwise, reset everything
+    mov r0,#g_ledlightshow_watchdog_state
+    mov @r0,#0
+    mov r0,#g_ledlightshow_watchdog_death_counter
+    mov @r0,#0
+    ret
+
+_led_lightshow_sm_check_case_00:
+    mov r0,#g_ledlightshow_watchdog_state
+    mov a,@r0
+
+    cjne a,0x00,_led_lightshow_sm_check_case_01
+
+    ; load death counter and start it on next pass
+    mov r0,#g_ledlightshow_watchdog_state
+    mov @r0,#1
+    mov r0,#g_ledlightshow_watchdog_death_counter
+    mov @r0,#0xFA ; 5000 ms (250 * 20). remember we're called in the codeblock that executes every 20 ms!
+
+led_lightshow_sm_do_nothing:
+    ret
+
+_led_lightshow_sm_check_case_01:
+    cjne a,#0x01,led_lightshow_sm_do_nothing
+
+    ; tick death counter down
+    ; the LED animation should arrive before then, hopefully...
+    djnz g_ledlightshow_watchdog_death_counter,led_lightshow_sm_do_nothing
+
+    ; it hasn't - give up and reboot
+    ; to soft reset instead, set g_sysreset_watchdog_should_run
+ifdef SOFT_RESET_ON_LED_WATCHDOG_TIMEOUT
+    setb g_sysreset_watchdog_should_run
+    ret
+else
+    ljmp hard_reset
+endif
+
+
+    ; IPC hook lands here
+ipc_led_anim_has_arrived:
+    ; this setb was overwritten by our ljmp earlier so restore it
+    setb 028h.7
+
+    ; REALLY make sure the CPU requested that we play the animation
+    ; (carry should still be set coming into this function)
+    jnc led_lightshow_sm_do_nothing
+    
+    ; it did - shut down lightshow statemachine
+    mov r0,#g_ledlightshow_watchdog_state
+    mov @r0,#2
+    ret
+
+hard_reset_end:
+    .end
