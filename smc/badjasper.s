@@ -113,6 +113,11 @@ endif
 hard_reset_start:
 
 hard_reset:
+    ; if power button is held, power off immediately so the user can actually power the console down.
+    ; if we don't do this, the console will likely bootloop until power is disconnected.
+    lcall 0x25f0 ; power button read routine
+    jc _hard_reset_power_off
+
     ; stash powerup cause because it will get trashed on reboot
     mov r0,#g_power_up_cause
     mov a,@r0
@@ -125,6 +130,7 @@ hard_reset:
 
     ; and force a hard reset
     ; (this should NOT clear our work var space!!)
+_hard_reset_power_off:
     jmp 0x0000
 
 _hardreset_do_nothing:
