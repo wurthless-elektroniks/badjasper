@@ -10,6 +10,8 @@
 ;   pops decrease stack pointer. Keep your variables away from the stack pointer.
 ;
 
+; turn this on to increase SMC timeout (might be necessary in some cases)
+INCREASE_RESET_WATCHDOG_TIMEOUT equ 1
 
 ; ------------------------------------------------------------------------
 ;
@@ -61,6 +63,13 @@ ifdef HARD_RESET_ON_NORMAL_TIMEOUT
     mov dptr,#reset_watchdog_fail_case_end
 endif
 
+ifdef INCREASE_RESET_WATCHDOG_TIMEOUT
+    mov dptr,#reset_watchdog_reload_1_patch_start
+    mov dptr,#reset_watchdog_reload_1_patch_end
+    mov dptr,#reset_watchdog_reload_2_patch_start
+    mov dptr,#reset_watchdog_reload_2_patch_end
+endif
+
     mov dptr,#hard_reset_start
     mov dptr,#hard_reset_end
 
@@ -97,10 +106,26 @@ ipc_setled_reroute_start:
     ljmp ipc_led_anim_has_arrived
 ipc_setled_reroute_end:
 
+ifdef INCREASE_RESET_WATCHDOG_TIMEOUT
+    ; patches to set reset watchdog timeout (if necessary)
+    ; 0x64 for both = 4 seconds
+    ; 0x50 for both = 3.2 seconds (SMC+ default)
+
+    .org 0x1279
+reset_watchdog_reload_1_patch_start:
+    mov 0x3D,#0x64
+reset_watchdog_reload_1_patch_end:
+    
+    .org 0x1290
+reset_watchdog_reload_2_patch_start:
+    mov 0x3D,#0x64
+reset_watchdog_reload_2_patch_end:
+
+endif
+
     ; reset watchdog patch: jump to hard reset function on timeout
     ; (togglable)
 ifdef HARD_RESET_ON_NORMAL_TIMEOUT
-
     .org 0x12B7
 reset_watchdog_fail_case_start:
     ljmp hard_reset
@@ -163,14 +188,24 @@ hardreset_sm_exec:
 
     cjne a,#0x43,_hardreset_sm_check_case_54
 
-    ; state 1: push power button and go to next state
-    setb g_powerswitch_pushed
+    ; first state is just to load the next state
+    ; this delays the power-on by 20 or so ms, giving things time to cool down a bit
     mov r0,#g_hardreset_sm_state
     mov @r0,#0x54
     ret
 
 _hardreset_sm_check_case_54:
-    cjne a,#0x54,_hardreset_do_nothing
+    cjne a,#0x54,_hardreset_sm_check_case_63
+
+    ; push power button and go to next state
+    setb g_powerswitch_pushed
+    mov r0,#g_hardreset_sm_state
+    mov @r0,#0x63
+
+    ret
+
+_hardreset_sm_check_case_63:
+    cjne a,#0x63,_hardreset_do_nothing
 
     ; wait for power up sequence to finish,
     ; then restore powerup cause

@@ -11,6 +11,7 @@ import os
 from ecc import NandType, ecc_encode
 from smc import encrypt_smc
 
+from cd.patch_cdxell_spinloop import cdxell_make_spinloop_patch
 from xell.patch_6752_xell import xell6752_do_patches
 key_1BL = b"\xDD\x88\xAD\x0C\x9E\xD6\x69\xE7\xB5\x67\x94\xFB\x68\x56\x3E\xFA"
  
@@ -98,26 +99,56 @@ def load_or_die(path: str) -> bytes:
         return f.read()
 
 XELL_TARGETS = {
+    # these are ECCs that actually run XeLL
     "jasper_badjasper": {
         "nandtype":  NandType.NAND_16M_JASPER,
         "smc":       os.path.join("smc","build","smc+badjasper.bin"),
         "output":    os.path.join("ecc","glitch2_badjasper.ecc"),
         "imagetype": ImageType.GLITCH2,
-        "cbb":       '6752'
+        "cbb":       '6752',
+        "cd":        'cdxell'
     },
     "jasper_badjasper_hard_reset_on_normal_timeout": {
         "nandtype":  NandType.NAND_16M_JASPER,
         "smc":       os.path.join("smc","build","smc+badjasper_hardreset_on_normal_timeout.bin"),
         "output":    os.path.join("ecc","glitch2_badjasper_hardreset_on_normal_timeout.ecc"),
         "imagetype": ImageType.GLITCH2,
-        "cbb":       '6752'
+        "cbb":       '6752',
+        "cd":        'cdxell'
     },
     "jasper_badjasper_soft_reset_on_normal_timeout": {
         "nandtype":  NandType.NAND_16M_JASPER,
         "smc":       os.path.join("smc","build","smc+badjasper_softreset_on_led_timeout.bin"),
         "output":    os.path.join("ecc","glitch2_badjasper_softreset_on_led_timeout.ecc"),
         "imagetype": ImageType.GLITCH2,
-        "cbb":       '6752'
+        "cbb":       '6752',
+        "cd":        'cdxell'
+    },
+
+    # these are meant to test the LED watchdog timeout and will NOT boot to XeLL
+    "jasper_badjasper_spinloop": {
+        "nandtype":  NandType.NAND_16M_JASPER,
+        "smc":       os.path.join("smc","build","smc+badjasper.bin"),
+        "output":    os.path.join("ecc","glitch2_badjasper_spinloop.ecc"),
+        "imagetype": ImageType.GLITCH2,
+        "cbb":       '6752',
+        "cd":        'cdxell_spinloop'
+    },
+    "jasper_badjasper_hard_reset_on_normal_timeout_spinloop": {
+        "nandtype":  NandType.NAND_16M_JASPER,
+        "smc":       os.path.join("smc","build","smc+badjasper_hardreset_on_normal_timeout.bin"),
+        "output":    os.path.join("ecc","glitch2_badjasper_hardreset_on_normal_timeout_spinloop.ecc"),
+        "imagetype": ImageType.GLITCH2,
+        "cbb":       '6752',
+        "cd":        'cdxell_spinloop'
+    },
+    "jasper_badjasper_soft_reset_on_normal_timeout_spinloop": {
+        "nandtype":  NandType.NAND_16M_JASPER,
+        "smc":       os.path.join("smc","build","smc+badjasper_softreset_on_led_timeout.bin"),
+        "output":    os.path.join("ecc","glitch2_badjasper_softreset_on_led_timeout_spinloop.ecc"),
+        "imagetype": ImageType.GLITCH2,
+        "cbb":       '6752',
+        "cd":        'cdxell_spinloop'
     }
 }
 
@@ -138,8 +169,15 @@ def main():
     cbb_6752 = load_or_die(os.path.join("cbb","cbb_6752_clean.bin"))
     cbb_6752 = xell6752_do_patches(cbb_6752)
 
+    cd_spinloop = cdxell_make_spinloop_patch(cd)
+
     cbbs = {
         '6752': cbb_6752,
+    }
+
+    cds = {
+        'cdxell': cd,
+        'cdxell_spinloop': cd_spinloop
     }
 
     try:
@@ -150,6 +188,7 @@ def main():
             output     = target_params["output"]
             imagetype  = target_params["imagetype"]
             cbb        = cbbs[target_params["cbb"]]
+            cd         = cds[target_params["cd"]]
 
             smc_data = load_or_die(smc)
 

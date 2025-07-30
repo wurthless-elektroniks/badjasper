@@ -85,6 +85,8 @@ they can take more than 30 seconds in some cases. In a best case scenario you ca
 instaboots. The turbo reset code, if and when it's done, will help speed things up, but it will only be for RGH1.3
 because it's faster there than on RGH1.2.
 
+**If your console is boot looping and you have hard reset enabled, hold the power button and it will power down.**
+
 ## Known improvements
 
 - We don't really need to power cycle the system for issue 2; a soft reset would suffice. But the hard reset 
