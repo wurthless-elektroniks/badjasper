@@ -58,6 +58,8 @@ g_power_up_cause_backup                 equ 09Ah
     mov dptr,#ipc_setled_reroute_start
     mov dptr,#ipc_setled_reroute_end
 
+    mov dptr,#reset_watchdog_success_case_start
+    mov dptr,#reset_watchdog_success_case_end
 ifdef HARD_RESET_ON_NORMAL_TIMEOUT
     mov dptr,#reset_watchdog_fail_case_start
     mov dptr,#reset_watchdog_fail_case_end
@@ -122,6 +124,16 @@ reset_watchdog_reload_2_patch_start:
 reset_watchdog_reload_2_patch_end:
 
 endif
+
+    ; reset watchdog patch: GetPowerUpCause arrived
+    ; so jump to custom code to start the LED lightshow watchdog
+    ; (I had problems monitoring g_has_getpowerupcause_arrived)
+    .org 0x12AD
+reset_watchdog_success_case_start:
+    ljmp on_reset_watchdog_done
+reset_watchdog_success_case_end:
+
+
 
     ; reset watchdog patch: jump to hard reset function on timeout
     ; (togglable)
@@ -219,52 +231,43 @@ _hardreset_sm_check_case_63:
     mov @r0,#0
     ret
 
-;
-; LED lightshow watchdog down here
-;
-led_lightshow_sm_exec:
-    ; only execute this after GetPowerUpCause arrives.
-    ; note that the system will clear this flag on the next boot attempt.
-    jb g_has_getpowerupcause_arrived,_led_lightshow_sm_check_case_00
+on_reset_watchdog_done:
+    ; stop that watchdog
+    clr g_sysreset_watchdog_should_run
 
-    ; otherwise, reset everything
-    mov r0,#g_ledlightshow_watchdog_state
-    mov @r0,#0
-    mov r0,#g_ledlightshow_watchdog_death_counter
-    mov @r0,#0
-    ret
-
-_led_lightshow_sm_check_case_00:
-    mov r0,#g_ledlightshow_watchdog_state
-    mov a,@r0
-
-    cjne a,0x00,_led_lightshow_sm_check_case_01
-
-    ; load death counter and start it on next pass
+    ; and start executing ours
     mov r0,#g_ledlightshow_watchdog_state
     mov @r0,#1
+
     mov r0,#g_ledlightshow_watchdog_death_counter
-    mov @r0,#0xFA ; 5000 ms (250 * 20). remember we're called in the codeblock that executes every 20 ms!
+    mov @r0,#250 ; 5000 ms (250 * 20). remember we're called in the codeblock that executes every 20 ms!
 
 led_lightshow_sm_do_nothing:
     ret
 
-_led_lightshow_sm_check_case_01:
-    cjne a,#0x01,led_lightshow_sm_do_nothing
+;
+; LED lightshow watchdog down here
+;
+led_lightshow_sm_exec:
+    mov r0,#g_ledlightshow_watchdog_state
+    mov a,@r0
+    cjne a,#1,led_lightshow_sm_do_nothing
 
     ; tick death counter down
-    ; the LED animation should arrive before then, hopefully...
-    djnz g_ledlightshow_watchdog_death_counter,led_lightshow_sm_do_nothing
+    ; djnz can't be used here because our vars are in high memory
+    mov r0,#g_ledlightshow_watchdog_death_counter
+    mov a,@r0
+    dec a
+    mov @r0,a
+    cjne a,#0,led_lightshow_sm_do_nothing
 
-    ; it hasn't - give up and reboot
-    ; to soft reset instead, set g_sysreset_watchdog_should_run
+    ; reset on timeout
 ifdef SOFT_RESET_ON_LED_WATCHDOG_TIMEOUT
     setb g_sysreset_watchdog_should_run
     ret
 else
     ljmp hard_reset
 endif
-
 
     ; IPC hook lands here
 ipc_led_anim_has_arrived:
