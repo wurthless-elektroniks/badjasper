@@ -43,6 +43,8 @@ g_hardreset_sm_init                     equ 098h
 g_hardreset_sm_state                    equ 099h
 g_power_up_cause_backup                 equ 09Ah
 
+LED_LIGHTSHOW_SM_TIMEOUT_TICKS equ 150 ; 150 * 20 * 2 = 6000 ms
+
 ; ------------------------------------------------------------------------
 ;
 ; Patchlist
@@ -239,9 +241,9 @@ on_reset_watchdog_done:
     mov r0,#g_ledlightshow_watchdog_state
     mov @r0,#1
 
+led_lightshow_sm_reload_counter_and_exit:
     mov r0,#g_ledlightshow_watchdog_death_counter
-    mov @r0,#250 ; 5000 ms (250 * 20). remember we're called in the codeblock that executes every 20 ms!
-
+    mov @r0,#LED_LIGHTSHOW_SM_TIMEOUT_TICKS
 led_lightshow_sm_do_nothing:
     ret
 
@@ -251,7 +253,31 @@ led_lightshow_sm_do_nothing:
 led_lightshow_sm_exec:
     mov r0,#g_ledlightshow_watchdog_state
     mov a,@r0
-    cjne a,#1,led_lightshow_sm_do_nothing
+    cjne a,#1,_led_lightshow_sm_do_state_2
+
+    ; short-circuit if powerdown statemachine starts
+    ; so that we don't power up again by mistake
+    jb g_powerdown_sm_should_run,_led_lightshow_sm_go_idle
+
+    ; tick death counter down
+    ; djnz can't be used here because our vars are in high memory
+    mov r0,#g_ledlightshow_watchdog_death_counter
+    mov a,@r0
+    dec a
+    mov @r0,a
+    cjne a,#0,led_lightshow_sm_do_nothing
+
+    ; timed out - reload counter and go to state 2
+    mov r0,#g_ledlightshow_watchdog_state
+    mov @r0,#2
+    sjmp led_lightshow_sm_reload_counter_and_exit
+
+_led_lightshow_sm_do_state_2:
+    cjne a,#2,led_lightshow_sm_do_nothing
+
+    ; short-circuit if powerdown statemachine starts
+    ; so that we don't power up again by mistake
+    jb g_powerdown_sm_should_run,_led_lightshow_sm_go_idle
 
     ; tick death counter down
     ; djnz can't be used here because our vars are in high memory
@@ -263,8 +289,10 @@ led_lightshow_sm_exec:
 
     ; reset on timeout
 ifdef SOFT_RESET_ON_LED_WATCHDOG_TIMEOUT
+    setb 022h.4
     setb g_sysreset_watchdog_should_run
-    ret
+
+    sjmp _led_lightshow_sm_go_idle
 else
     ljmp hard_reset
 endif
@@ -277,10 +305,11 @@ ipc_led_anim_has_arrived:
     ; REALLY make sure the CPU requested that we play the animation
     ; (carry should still be set coming into this function)
     jnc led_lightshow_sm_do_nothing
-    
+
     ; it did - shut down lightshow statemachine
+_led_lightshow_sm_go_idle:
     mov r0,#g_ledlightshow_watchdog_state
-    mov @r0,#2
+    mov @r0,#0
     ret
 
 hard_reset_end:

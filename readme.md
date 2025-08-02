@@ -96,6 +96,10 @@ because it's faster there than on RGH1.2.
   watchdog. However it's safe to assume most people will have their systems plugged into a display device in normal
   operation, and as a bonus, it allows us to simulate the failure condition in testing.
 
+- I wanted to flash the Ring of Light orange upon receiving GetPowerUpCause, as it's a sign the CPU would have made
+  it through the critical hardware init phase. However the Argon/Ring of Light state machine is something I have yet
+  to figure out.
+
 ## People who did more than I did
 
 - 15432's RGH3 sourcecode and builder were extremely inspirational for all this stupid work I've been doing and I've
