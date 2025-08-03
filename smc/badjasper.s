@@ -60,6 +60,9 @@ LED_LIGHTSHOW_SM_TIMEOUT_TICKS equ 150 ; 150 * 20 * 2 = 6000 ms
     mov dptr,#ipc_setled_reroute_start
     mov dptr,#ipc_setled_reroute_end
 
+    mov dptr,#ipc_displayerror_reroute_start
+    mov dptr,#ipc_displayerror_reroute_end
+
     mov dptr,#reset_watchdog_success_case_start
     mov dptr,#reset_watchdog_success_case_end
 ifdef HARD_RESET_ON_NORMAL_TIMEOUT
@@ -104,11 +107,20 @@ init_memclear_patch_start:
     mov r2,#0x1A ; stop memory clear at 0x97, so 0x98, 0x99, 0x9A don't get overwritten on reboot
 init_memclear_patch_end:
 
+
     ; reroute any power LED changes (via IPC) to custom code below
     .org 0xC77
 ipc_setled_reroute_start:
     ljmp ipc_led_anim_has_arrived
 ipc_setled_reroute_end:
+
+    ; if CPU sends an error code to the SMC, then we need
+    ; to cancel the LED lightshow watchdog to prevent reboots
+    .org 0xCF5
+ipc_displayerror_reroute_start:
+    ljmp ipc_displayerror_has_arrived
+ipc_displayerror_reroute_end:
+
 
 ifdef INCREASE_RESET_WATCHDOG_TIMEOUT
     ; patches to set reset watchdog timeout (if necessary)
@@ -311,6 +323,20 @@ _led_lightshow_sm_go_idle:
     mov r0,#g_ledlightshow_watchdog_state
     mov @r0,#0
     ret
+
+    ; other IPC hook lands here
+ipc_displayerror_has_arrived:
+    ; these instructions were trashed by our ljmp
+    mov 0x5A,r2
+    mov 0x5C,r3
+
+    ; shut statemachine off
+    mov r0,#g_ledlightshow_watchdog_state
+    mov @r0,#0
+
+    ; and continue with error case
+    ljmp 0x0CF9
+
 
 hard_reset_end:
     .end
