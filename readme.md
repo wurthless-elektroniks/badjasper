@@ -7,7 +7,7 @@ hoarding code, I'm breaking the thing down into smaller chunks. First up is a wo
 
 I don't have all the consoles in the world and I want to move on to other projects so this has been
 released as something I have tested only on a couple of consoles. They might solve your problems,
-they might not.
+they might not. Use it at your own risk!
 
 ## Explanation
 
@@ -32,7 +32,7 @@ a simple soft reset.
 
 More specific details:
 - There are some spare bytes in memory that are normally zeroed out on reset, but end up going unused. We
-  hack the code to spare those bytes from BSS antics so they persist through a reboot.
+  hack the code to spare those bytes from the BSS bulldozer so they persist through a reboot.
 - On the first pass through the mainloop, our custom statemachine code executes and initializes those variables.
 
 Reboot statemachine operation for the 0xDB issue:
@@ -41,14 +41,19 @@ Reboot statemachine operation for the 0xDB issue:
   cause, otherwise it breaks XeLL.)
 - Everything powers down and the SMC makes it back to our reboot statemachine, whose state has persisted through the
   reboot. So, it powers the system on by pretending that the power button was pressed.
-- Once the power-up sequence completes, the reboot statemachine restores the power-up cause, and goes idle.
+- Once the power-up sequence completes, the reboot statemachine restores the power-up cause, and goes idle until it's
+  time to run the next hard reset.
 
 LED watchdog statemachine operation for crashes late in the boot process:
 - We wait for GetPowerUpCause to arrive before executing this statemachine. Once it has, we start a death counter,
   which gives the CPU five seconds to send the Ring of Light boot animation, which it usually does if the boot succeeds.
   If it doesn't in time, we reboot.
+- In a first for hacked SMCs, the Ring of Light actually indicates boot progress. When we receive GetPowerUpCause,
+  we set the LEDs so it displays a Red/Orange/Green pattern.
 - We hook the IPC function responsible for handling the power LED state. Once the CPU enables the animation, we
   assume the boot has succeeded and disable our watchdog.
+- If the CPU raises a RRoD error, we cancel the watchdog, allowing the unfortunate user to get their error code instead
+  of having the system constantly reboot on them.
 
 ## Building
 
@@ -58,11 +63,10 @@ LED watchdog statemachine operation for crashes late in the boot process:
 
 - `badjasper.bin`: Hard resets on LED timeout only, will soft reset on a normal SMC timeout.
 - `badjasper_hardreset_on_normal_timeout.bin`: Hard resets on both a normal SMC timeout and on LED timeout.
-- `badjasper_softreset_on_led_timeout.bin`: Soft resets on both a normal SMC timeout and on LED timeout.
 
 **Important note for developers!** The SMC binary is built in unscrambled form, a quirk that is inherited from
 15432's original RGH3 builder. When the SMC loads data, it discards the first four bytes and instead uses four
-bytes at 0x1FF8 as the real first four. If you feed the unscrambled binary into J-Runner or other tools as-is,
+bytes at 0x2FF8 as the real first four. If you feed the unscrambled binary into J-Runner or other tools as-is,
 you will be greeted with a dead console.
 
 To convert the SMC to a scrambled SMC, you can either extract it from the ECCs, or, more easily, run:
@@ -83,7 +87,7 @@ They will suck.
 The most uncooperative Jaspers will take a long ass time to boot with RGH1.2. Even with speedup hacks, I've found
 they can take more than 30 seconds in some cases. In a best case scenario you can expect maybe 10-20 seconds or
 instaboots. The turbo reset code, if and when it's done, will help speed things up, but it will only be for RGH1.3
-because it's faster there than on RGH1.2.
+because it's faster and more dependable there than on RGH1.2.
 
 **If your console is boot looping and you have hard reset enabled, hold the power button and it will power down.**
 
@@ -95,10 +99,6 @@ because it's faster there than on RGH1.2.
 - The MS kernel will usually hang if a HDMI cable or A/V adapter isn't plugged in, which will trigger the LED
   watchdog. However it's safe to assume most people will have their systems plugged into a display device in normal
   operation, and as a bonus, it allows us to simulate the failure condition in testing.
-
-- I wanted to flash the Ring of Light orange upon receiving GetPowerUpCause, as it's a sign the CPU would have made
-  it through the critical hardware init phase. However the Argon/Ring of Light state machine is something I have yet
-  to figure out.
 
 ## People who did more than I did
 

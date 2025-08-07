@@ -116,14 +116,6 @@ XELL_TARGETS = {
         "cbb":       '6752',
         "cd":        'cdxell'
     },
-    "jasper_badjasper_soft_reset_on_normal_timeout": {
-        "nandtype":  NandType.NAND_16M_JASPER,
-        "smc":       os.path.join("smc","build","smc+badjasper_softreset_on_led_timeout.bin"),
-        "output":    os.path.join("ecc","glitch2_badjasper_softreset_on_led_timeout.ecc"),
-        "imagetype": ImageType.GLITCH2,
-        "cbb":       '6752',
-        "cd":        'cdxell'
-    },
 
     # these are meant to test the LED watchdog timeout and will NOT boot to XeLL
     "jasper_badjasper_spinloop": {
@@ -138,14 +130,6 @@ XELL_TARGETS = {
         "nandtype":  NandType.NAND_16M_JASPER,
         "smc":       os.path.join("smc","build","smc+badjasper_hardreset_on_normal_timeout.bin"),
         "output":    os.path.join("ecc","glitch2_badjasper_hardreset_on_normal_timeout_spinloop.ecc"),
-        "imagetype": ImageType.GLITCH2,
-        "cbb":       '6752',
-        "cd":        'cdxell_spinloop'
-    },
-    "jasper_badjasper_soft_reset_on_normal_timeout_spinloop": {
-        "nandtype":  NandType.NAND_16M_JASPER,
-        "smc":       os.path.join("smc","build","smc+badjasper_softreset_on_led_timeout.bin"),
-        "output":    os.path.join("ecc","glitch2_badjasper_softreset_on_led_timeout_spinloop.ecc"),
         "imagetype": ImageType.GLITCH2,
         "cbb":       '6752',
         "cd":        'cdxell_spinloop'

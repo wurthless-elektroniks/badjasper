@@ -89,12 +89,6 @@ SMC_TARGETS = {
         "asm_name": "badjasper_hardreset_on_normal_timeout.s",
         "overlay_name": "smc+badjasper_hardreset_on_normal_timeout_overlay.bin",
         "output": "smc+badjasper_hardreset_on_normal_timeout.bin"
-    },
-    "jasper_smc+badjasper_softreset_on_led_timeout" : {
-        "clean_smc_name": "jasper_smc+.bin",
-        "asm_name": "badjasper_softreset_on_led_timeout.s",
-        "overlay_name": "smc+badjasper_softreset_on_led_timeout_overlay.bin",
-        "output": "smc+badjasper_softreset_on_led_timeout.bin"
     }
 }
 

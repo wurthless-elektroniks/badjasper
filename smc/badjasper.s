@@ -43,7 +43,14 @@ g_hardreset_sm_init                     equ 098h
 g_hardreset_sm_state                    equ 099h
 g_power_up_cause_backup                 equ 09Ah
 
-LED_LIGHTSHOW_SM_TIMEOUT_TICKS equ 150 ; 150 * 20 * 2 = 6000 ms
+g_rol_ledstate                          equ 0AFh
+g_rol_flags                             equ 062h
+g_rol_update_pending                    equ 029h.0
+g_rol_run_bootanim                      equ 028h.7
+
+LED_LIGHTSHOW_SM_TIMEOUT_TICKS equ 125 ; 125 * 20 * 2 = 5000 ms, adjust as necessary
+
+LEDPATTERN_RED_ORANGE_GREEN equ 0b01100011
 
 ; ------------------------------------------------------------------------
 ;
@@ -245,11 +252,21 @@ _hardreset_sm_check_case_63:
     mov @r0,#0
     ret
 
+
+
+;
+; LED lightshow watchdog down here
+;
+
 on_reset_watchdog_done:
     ; stop that watchdog
     clr g_sysreset_watchdog_should_run
 
-    ; and start executing ours
+    ; set LEDs to indicate GetPowerUpCause arrival
+    mov a,#LEDPATTERN_RED_ORANGE_GREEN
+    lcall rol_set_leds
+
+    ; start the IPC watchdog
     mov r0,#g_ledlightshow_watchdog_state
     mov @r0,#1
 
@@ -259,9 +276,6 @@ led_lightshow_sm_reload_counter_and_exit:
 led_lightshow_sm_do_nothing:
     ret
 
-;
-; LED lightshow watchdog down here
-;
 led_lightshow_sm_exec:
     mov r0,#g_ledlightshow_watchdog_state
     mov a,@r0
@@ -285,7 +299,7 @@ led_lightshow_sm_exec:
     sjmp led_lightshow_sm_reload_counter_and_exit
 
 _led_lightshow_sm_do_state_2:
-    cjne a,#2,led_lightshow_sm_do_nothing
+    cjne a,#2,_led_lightshow_sm_do_state_3
 
     ; short-circuit if powerdown statemachine starts
     ; so that we don't power up again by mistake
@@ -299,26 +313,46 @@ _led_lightshow_sm_do_state_2:
     mov @r0,a
     cjne a,#0,led_lightshow_sm_do_nothing
 
-    ; reset on timeout
-ifdef SOFT_RESET_ON_LED_WATCHDOG_TIMEOUT
-    setb 022h.4
-    setb g_sysreset_watchdog_should_run
+    ; failure case ends up here
+    ; first clear LED states
+    mov a,#0
+    lcall rol_set_leds
+
+    ; then reboot
+    ljmp hard_reset
+
+_led_lightshow_sm_do_state_3:
+    cjne a,#3,led_lightshow_sm_do_nothing
+
+    ; manually run ring of light bootanim (if necessary)
+    setb g_rol_run_bootanim
+
+    mov a,g_rol_flags
+    anl a,#0b11011111
+    orl a,#0b00010000  ; bootanim sets bit 4
+    mov g_rol_flags,a
 
     sjmp _led_lightshow_sm_go_idle
-else
-    ljmp hard_reset
-endif
 
     ; IPC hook lands here
 ipc_led_anim_has_arrived:
     ; this setb was overwritten by our ljmp earlier so restore it
-    setb 028h.7
+    setb g_rol_run_bootanim
 
     ; REALLY make sure the CPU requested that we play the animation
     ; (carry should still be set coming into this function)
     jnc led_lightshow_sm_do_nothing
 
-    ; it did - shut down lightshow statemachine
+    ; clear our LED state
+    mov a,#0
+    lcall rol_set_leds
+
+    ; note that this RoL operation also cancels the bootanim
+    ; so we need to run the bootanim manually after this
+    mov r0,#g_ledlightshow_watchdog_state
+    mov @r0,#3
+    ret
+
 _led_lightshow_sm_go_idle:
     mov r0,#g_ledlightshow_watchdog_state
     mov @r0,#0
@@ -336,6 +370,28 @@ ipc_displayerror_has_arrived:
 
     ; and continue with error case
     ljmp 0x0CF9
+
+
+;
+; Common function to set Ring of Light LEDs
+; a - LED states (upper 4 bits green, lower 4 bits red)
+;
+rol_set_leds:
+    mov r0,#g_rol_ledstate
+    mov @r0,a
+
+    ; bits 5/7 must be set for argon sm to display things
+    ; bit 5 is apparently some "high priority" bit and when it is set
+    ; nothing else will display on the ring
+    mov a,g_rol_flags
+    orl a,#0b10100000 
+    mov g_rol_flags,a
+    
+    ; and this bit has to be set too
+    setb g_rol_update_pending
+
+    ret
+
 
 
 hard_reset_end:
