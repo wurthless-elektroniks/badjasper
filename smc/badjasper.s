@@ -255,7 +255,7 @@ _hardreset_sm_check_case_54:
 powerup_event_callback:
     ; lcall overwrote these
     clr 020h.3
-    clr 021h.3
+    clr 021h.1
 
     ; if hard reset didn't cause us to get here, stop
     mov r0,#g_hardreset_sm_state
