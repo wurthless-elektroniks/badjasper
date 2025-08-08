@@ -29,7 +29,7 @@ g_has_getpowerupcause_arrived           equ 022h.3
 
 g_force_shutdown                        equ 023h.3
 
-g_power_up_cause                        equ 061h
+g_power_up_cause                        equ 063h
 
 g_shared_timer_cell                     equ 03Dh
 
@@ -83,6 +83,10 @@ ifdef INCREASE_RESET_WATCHDOG_TIMEOUT
     mov dptr,#reset_watchdog_reload_2_patch_start
     mov dptr,#reset_watchdog_reload_2_patch_end
 endif
+
+    mov dptr,#powerup_reroute_start
+    mov dptr,#powerup_reroute_end
+
 
     mov dptr,#hard_reset_start
     mov dptr,#hard_reset_end
@@ -166,6 +170,12 @@ reset_watchdog_fail_case_end:
 
 endif
 
+    .org 0x1E7D
+powerup_reroute_start:
+    lcall powerup_event_callback
+    nop ; because we overwrote two CLR opcodes
+powerup_reroute_end:
+
     ; the bulk of our code lives in here
     .org 0x2E20
 hard_reset_start:
@@ -228,7 +238,7 @@ hardreset_sm_exec:
     ret
 
 _hardreset_sm_check_case_54:
-    cjne a,#0x54,_hardreset_sm_check_case_63
+    cjne a,#0x54,_hardreset_do_nothing
 
     ; push power button and go to next state
     setb g_powerswitch_pushed
@@ -237,22 +247,27 @@ _hardreset_sm_check_case_54:
 
     ret
 
-_hardreset_sm_check_case_63:
-    cjne a,#0x63,_hardreset_do_nothing
 
-    ; wait for power up sequence to finish,
-    ; then restore powerup cause
-    jb g_powerup_sm_should_run,_hardreset_do_nothing
 
+
+
+
+powerup_event_callback:
+    ; lcall overwrote these
+    clr 020h.3
+    clr 021h.3
+
+    ; if hard reset didn't cause us to get here, stop
+    mov r0,#g_hardreset_sm_state
+    cjne @r0,#0x63,_hardreset_do_nothing
+
+    ; otherwise restore powerup cause and continue
+    mov @r0,#0                      ; turn off hard reset statemachine
     mov r0,#g_power_up_cause_backup ; read stashed powerup cause
     mov a,@r0
     mov r0,#g_power_up_cause        ; write it back to restore it
     mov @r0,a
-    mov r0,#g_hardreset_sm_state    ; turn off hard reset statemachine
-    mov @r0,#0
     ret
-
-
 
 ;
 ; LED lightshow watchdog down here
