@@ -105,6 +105,7 @@ because it's faster and more dependable there than on RGH1.2.
 - 15432's RGH3 sourcecode and builder were extremely inspirational for all this stupid work I've been doing and I've
   modified it to suit my ends
 - Octal450 is a hardass but he at least provided SMC+ and valuable advice and feedback for this project
+- Nadaman made the cool XeLL that doesn't crash when you connect Ethernet
 
 Onward to turbo reset!
 
